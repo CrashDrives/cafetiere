@@ -30,9 +30,4 @@ Affichage OLED, encodeur rotatif, boutons physiques, LED RGB, et écran de veill
 
 ---
 
-## 📦 Installation
-
-1. Cloner ce dépôt :
-   ```bash
-   git clone https://github.com/CrashDrives/cafetiere.git![1754835535150](https://github.com/user-attachments/assets/ad6a34e2-87fc-4723-96c2-735c3778d6ff)
 
