@@ -30,4 +30,4 @@ Affichage OLED, encodeur rotatif, boutons physiques, LED RGB, et écran de veill
 
 ---
 
-
+<img src="https://github.com/user-attachments/assets/75113069-de2d-4b05-a9bc-64a9e9478a68" alt="cafetiere" width="50%"/>
