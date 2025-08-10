@@ -1,0 +1,427 @@
+esphome:
+  name: cafetiere
+  friendly_name: cafetière
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+api:
+  encryption:
+    key: "générate"
+
+ota:
+  - platform: esphome
+    password: "générate"
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
+  on_connect:
+    - light.turn_on: 
+        id: statut_led
+        effect: "Rainbow"
+  on_disconnect:
+    - light.turn_on: 
+        id: statut_led
+        effect: "Erreur"
+
+
+  ap:
+    ssid: "Cafetiere Fallback Hotspot"
+    password: "Cafetiere Fallback Hotspot"
+
+captive_portal:
+
+web_server:
+  port: 80
+
+time:
+  - platform: homeassistant
+    id: time1
+
+status_led:
+  pin: GPIO02
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: True
+  frequency: 100kHz
+
+font:
+  - file: "fonts/comic.ttf"
+    id: font1
+    size: 12
+
+  - file: "fonts/comic.ttf"
+    id: font2
+    size: 40
+
+globals:
+  - id: menu_mode
+    type: int
+    restore_value: no
+    initial_value: '0'  # 0 = normal, 1 = programming
+  - id: prog_mode
+    type: int
+    restore_value: no
+    initial_value: '0' # 1= hour, 2 = minute
+  - id: prog
+    type: int
+    restore_value: yes
+    initial_value: '0'  # 0 = off, 1 = on
+  - id: page_active
+    type: int
+    restore_value: no
+    initial_value: '0'  # 0 = accueil, 1 = programmation
+  - id: page_index
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: drift_x
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: drift_y
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: last_interaction # for screensaver
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+display:
+  - platform: ssd1306_i2c
+    model: "SH1106 128x64"
+    address: 0x3C
+    id: the_display
+    contrast: 100%
+    update_interval: 500ms
+    lambda: |-
+      if (id(last_interaction) > 120) {
+        // Screensaver after 2 minutes 
+        it.fill(COLOR_OFF);  
+        it.circle(id(drift_x), id(drift_y), 10);  // Animation simple
+      } else {
+        if (id(page_index) == 0) {
+          // Page accueil
+          int x = (int)id(sstrength).state;
+          if (x < 0) {
+            if ((x > -90) && (x < 0)) it.filled_rectangle(103, 8, 5, 2); else it.rectangle(103, 8, 5, 2);          
+            if ((x > -70) && (x < 0)) it.filled_rectangle(109, 5, 5, 5); else it.rectangle(109, 5, 5, 5);   
+            if ((x > -50) && (x < 0)) it.filled_rectangle(115, 2, 5, 8); else it.rectangle(115, 2, 5, 8);
+            if ((x > -30) && (x < 0)) it.filled_rectangle(121, 0, 5, 11); else it.rectangle(121, 0, 5, 10); 
+          }
+          it.strftime(63, 10, id(font1), TextAlign::BASELINE_CENTER, "%d/%m/%Y", id(time1).now());
+          it.strftime(63, 45, id(font2), TextAlign::BASELINE_CENTER, "%H:%M", id(time1).now());
+          if (id(prog) == 1) {
+            it.filled_circle(25, 56, 4);
+          } else {
+            it.circle(25, 56, 4);
+          }
+          it.printf(63, 60, id(font1), TextAlign::BASELINE_CENTER, "Prg: %02.0f:%02.0f", id(heure_programmee).state, id(minute_programmee).state);
+          id(page_active) = 0;
+        } else if (id(page_index) == 1) {
+          // Page programmation
+          it.strftime(63, 10, id(font1), TextAlign::BASELINE_CENTER, "%d/%m/%Y - %H:%M", id(time1).now());
+          it.printf(63, 20, id(font1), TextAlign::BASELINE_CENTER, "Programmation");
+          it.printf(63, 55, id(font2), TextAlign::BASELINE_CENTER, ":");
+          it.printf(31, 55, id(font2), TextAlign::BASELINE_CENTER, "%02.0f", id(heure_programmee).state);
+          it.printf(94, 55, id(font2), TextAlign::BASELINE_CENTER, "%02.0f", id(minute_programmee).state);
+          id(page_active) = 1;
+          if (id(prog_mode) == 1 && id(menu_mode) == 1) {
+           it.rectangle(0, 56, 63, 2, COLOR_ON);  // curseur sous l’heure
+          } else if (id(prog_mode) == 2 && id(menu_mode) == 1) {
+           it.rectangle(63, 56, 63, 2, COLOR_ON);  // curseur sous les minutes
+          } else if (id(menu_mode) == 0) {
+            it.rectangle(0, 56, 126, 2, COLOR_OFF);  // supprimer la ligne si menu_mode = 0
+          }
+        }
+      }
+
+interval:
+  - interval: 60s
+    then:
+      - lambda: |-
+          auto time = id(time1).now();
+          if (!time.is_valid()) return;
+          if (time.hour == (int)id(heure_programmee).state && time.minute == (int)id(minute_programmee).state && id(prog) == 1) {
+            id(marche).turn_on();
+          }
+  - interval: 500ms
+    then:
+      - lambda: |-
+          id(drift_x) = rand() % 118;  // max 128 - diamètre du cercle
+          id(drift_y) = rand() % 54;   // max 64 - diamètre du cercle
+  - interval: 1s
+    then:
+      - lambda: |-
+          id(last_interaction)++;
+
+sensor:
+  - platform: wifi_signal
+    name: "Signal Wifi"
+    id: sstrength
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Time up"
+    id: uptime_sec
+
+  - platform: rotary_encoder
+    id: Encoder
+    pin_a: GPIO39
+    pin_b: GPIO34
+    resolution: 1
+    on_value:
+      then:
+        - lambda: |-
+            if (id(menu_mode) == 1 && id(prog_mode) == 1) {
+              // édition heure
+              int h = (int)id(heure_programmee).state + id(Encoder).state;
+              if (h < 0) h = 23;
+              if (h > 23) h = 0;
+              id(heure_programmee).publish_state(h);
+            } else if (id(menu_mode) == 1 && id(prog_mode) == 2) {
+              // édition minute
+              int m = (int)id(minute_programmee).state + id(Encoder).state;
+              if (m < 0) m = 59;
+              if (m > 59) m = 0;
+              id(minute_programmee).publish_state(m);
+            } else {
+              // mode normal : changer de page
+              int p = id(page_index) + id(Encoder).state;
+              if (p < 0) p = 1;
+              if (p > 1) p = 0;
+              id(page_index) = p;
+            }
+            id(last_interaction) = 0;
+        - sensor.rotary_encoder.set_value:
+            id: Encoder
+            value: 0
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO33
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: "Minute"
+    internal: true
+    on_press:
+      then:
+        - lambda: |-
+            if (id(menu_mode) == 1 && id(page_active) == 1){
+              id(prog_mode) = 2;  // passe en édition minute
+            }
+            id(last_interaction) = 0;
+
+  - platform: gpio
+    pin:
+      number: GPIO32
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: "Heure"
+    internal: true
+    on_press:
+      then:
+        - lambda: |-
+            if (id(menu_mode) == 1 && id(page_active) == 1){
+              id(prog_mode) = 1;  // passe en édition heure
+            }
+            id(last_interaction) = 0;
+
+  - platform: gpio
+    pin: 
+      number: GPIO35
+      inverted: true
+    name: "Valider"
+    internal: true
+    on_press:
+      then:
+        - lambda: |-
+            if (id(page_index) == 0) {
+              // page accueil : toggle programmation
+              id(prog) = id(prog) == 0 ? 1 : 0;
+            } else if (id(page_index) == 1) {
+              // page programmation : cycle des modes
+              if (id(menu_mode) == 0) {
+                id(menu_mode) = 1;  // entre en mode programmation
+              } else {
+                id(menu_mode) = 0;  // quitte le mode programmation
+              }
+            }
+            id(last_interaction) = 0;
+
+switch:
+  - platform: restart
+    name: "Reboot"
+
+  - platform: gpio
+    pin: GPIO18
+    id: marche
+    name: "Marche"
+    on_turn_on:
+      then:
+        - light.turn_on: 
+            id: statut_led
+            effect: "Café en cours"
+        - lambda: |-
+            id(last_interaction) = 0;
+    on_turn_off:
+      then:
+        - light.turn_on: 
+            id: statut_led
+            effect: "Rainbow"
+        - lambda: |-
+            id(last_interaction) = 0;
+  - platform: template
+    name: "Programmé"
+    turn_on_action:
+      - globals.set:
+          id: prog
+          value: '1'
+      - lambda: |-
+          id(last_interaction) = 0;
+    turn_off_action:
+      - globals.set:
+          id: prog
+          value: '0'
+      - lambda: |-
+          id(last_interaction) = 0;
+    lambda: |-
+      return id(prog);
+
+light:
+  - platform: rgb
+    name: "Statut_led"
+    id: statut_led
+    red: red_channel
+    green: green_channel
+    blue: blue_channel
+    effects:
+      - random:
+          name: "Rainbow"
+          transition_length: 4s
+          update_interval: 5s
+      - strobe:
+          name: "Programmé"
+          colors:
+            - state: true
+              brightness: 50%
+              red: 60%
+              green: 100%
+              blue: 100%
+              duration: 500ms
+              transition_length: 1s
+            - state: true
+              brightness: 0%
+              red: 10%
+              green: 10%
+              blue: 10%
+              duration: 2s
+              transition_length: 1s
+      - strobe:
+          name: "Café en cours"
+          colors:
+            - state: true
+              brightness: 100%
+              red: 100%
+              green: 0%
+              blue: 0%
+              duration: 1s
+              transition_length: 500ms
+            - state: true
+              brightness: 100%
+              red: 70%
+              green: 80%
+              blue: 0%
+              duration: 1s
+              transition_length: 500ms
+      - strobe:
+          name: "Erreur"
+          colors:
+            - state: true
+              brightness: 100%
+              red: 100%
+              green: 0%
+              blue: 0%
+              duration: 500ms
+              transition_length: 500ms
+            - state: true
+              brightness: 0%
+              red: 0%
+              green: 0%
+              blue: 0%
+              duration: 2s
+              transition_length: 500ms
+      - strobe:
+          name: "Update"
+          colors:
+            - state: true
+              brightness: 100%
+              red: 0%
+              green: 100%
+              blue: 100%
+              duration: 1s
+              transition_length: 500ms
+            - state: true
+              brightness: 0%
+              red: 0%
+              green: 0%
+              blue: 0%
+              duration: 2s
+              transition_length: 500ms
+
+output:
+  - platform: ledc
+    id: red_channel
+    pin: GPIO27
+    inverted: true
+
+  - platform: ledc
+    id: green_channel
+    pin: GPIO26
+    inverted: true
+
+  - platform: ledc
+    id: blue_channel
+    pin: GPIO25
+    inverted: true
+
+number:
+  - platform: template
+    name: "Heure Programmée"
+    id: heure_programmee
+    min_value: 0
+    max_value: 23
+    step: 1
+    restore_value: true
+    optimistic: true
+    on_value:
+      then:
+        - lambda: |-
+            id(last_interaction) = 0;
+
+  - platform: template
+    name: "Minute Programmée"
+    id: minute_programmee
+    min_value: 0
+    max_value: 59
+    step: 1
+    restore_value: true
+    optimistic: true
+    on_value:
+      then:
+        - lambda: |-
+            id(last_interaction) = 0;
